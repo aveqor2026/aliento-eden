@@ -1,0 +1,19 @@
+{
+  "name": "Aliento · Afirmaciones",
+  "short_name": "Aliento",
+  "lang": "es",
+  "description": "Práctica de respiración con afirmaciones en la pausa.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101614",
+  "theme_color": "#101614",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
