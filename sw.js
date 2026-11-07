@@ -1,4 +1,4 @@
-const CACHE = "aliento-v7";
+const CACHE = "aliento-v8";
 
 const ASSETS = [
   "./",

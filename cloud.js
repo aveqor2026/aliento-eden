@@ -81,6 +81,8 @@ function newWriteId() {
   return `w-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+let authMod = null;
+
 async function ensure() {
   if (services) return services;
   if (!initPromise) initPromise = initServices();
@@ -94,6 +96,7 @@ async function initServices() {
     `${FB}/firebase-auth.js`
   );
   const fs = await import(`${FB}/firebase-firestore.js`);
+  authMod = await import(`${FB}/firebase-auth.js`);
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   await setPersistence(auth, browserLocalPersistence);
@@ -416,21 +419,24 @@ export function startCloud(handlers) {
 }
 
 export async function signInWithGoogle() {
+  // Call the popup without any await before it, so Safari keeps the tap gesture.
+  if (services && authMod) {
+    return popupSignIn(authMod, services.auth, services.provider);
+  }
   const { auth, provider } = await ensure();
-  const { signInWithPopup, signInWithRedirect } = await import(`${FB}/firebase-auth.js`);
-  try {
-    await signInWithPopup(auth, provider);
-  } catch (err) {
+  return popupSignIn(authMod, auth, provider);
+}
+
+function popupSignIn(mod, auth, provider) {
+  return mod.signInWithPopup(auth, provider).catch((err) => {
     const code = err?.code || "";
-    if (
-      code === "auth/popup-blocked" ||
-      code === "auth/operation-not-supported-in-this-environment"
-    ) {
-      await signInWithRedirect(auth, provider);
-      return;
+    if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+      const e = new Error("Safari bloqueó la ventana de Google. Toca otra vez Entrar con Google.");
+      e.code = code;
+      throw e;
     }
     throw err;
-  }
+  });
 }
 
 export async function signOutCloud() {
