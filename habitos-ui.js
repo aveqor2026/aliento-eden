@@ -34,7 +34,20 @@ import {
   updateHabit,
   validDate,
   yearHeat,
+  addDedicatedMinutes,
+  sumDedicatedMinutes,
 } from "./habitos.js";
+import {
+  displayMs,
+  formatClock,
+  getTimer,
+  pauseTimer,
+  resetTimer,
+  setTimerMode,
+  setTimerPresets,
+  startTimer,
+  takeMinutes,
+} from "./cronometro.js";
 
 const WEEKDAYS = ["L", "M", "X", "J", "V", "S", "D"];
 const WEEKDAY_NAMES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
@@ -99,6 +112,7 @@ export function renderHabitScreen(ctx) {
   if (ctx.app.screen === "reports") return renderReports(ctx);
   if (ctx.app.screen === "stats") return renderStats(ctx);
   if (ctx.app.screen === "group") return renderGroup(ctx);
+  if (ctx.app.screen === "crono") return renderCrono(ctx);
   return renderToday(ctx);
 }
 
@@ -131,7 +145,7 @@ function renderToday(ctx) {
       const streak = currentStreak(habit, store.entries);
       return `<article class="habit-card tone-${habit.color}" data-id="${ctx.escapeHtml(habit.id)}">
         <div class="habit-card-fill" style="width:${pct}%"></div>
-        <button type="button" class="habit-card-hit" data-add="${ctx.escapeHtml(habit.id)}" aria-label="Sumar a ${ctx.escapeHtml(habit.name)}">
+        <button type="button" class="habit-card-hit" data-open="${ctx.escapeHtml(habit.id)}" aria-label="Abrir ${ctx.escapeHtml(habit.name)}">
           <span class="habit-emoji" aria-hidden="true">${habit.emoji}</span>
           <span class="habit-card-copy">
             <span class="habit-name">${ctx.escapeHtml(habit.name)}</span>
@@ -167,14 +181,8 @@ function renderToday(ctx) {
       ctx.render();
     };
   }
-  for (const button of box.querySelectorAll("[data-add]")) {
-    button.onclick = () => quickAdd(ctx, button.dataset.add);
-  }
   for (const button of box.querySelectorAll("[data-open]")) {
-    button.onclick = (event) => {
-      event.stopPropagation();
-      openStats(ctx, button.dataset.open);
-    };
+    button.onclick = () => openCrono(ctx, button.dataset.open, "habits");
   }
 }
 
@@ -202,6 +210,13 @@ function quickAdd(ctx, id) {
 function openStats(ctx, id) {
   ctx.app.habitId = id;
   ctx.app.screen = "stats";
+  ctx.render();
+}
+
+function openCrono(ctx, id, back) {
+  ctx.app.habitId = id;
+  ctx.app.habitBack = back || "habits";
+  ctx.app.screen = "crono";
   ctx.render();
 }
 
@@ -286,7 +301,7 @@ function renderReports(ctx) {
     };
   }
   for (const button of box.querySelectorAll("[data-open]")) {
-    button.onclick = () => openStats(ctx, button.dataset.open);
+    button.onclick = () => openCrono(ctx, button.dataset.open, "reports");
   }
 }
 
@@ -359,12 +374,7 @@ function renderStats(ctx) {
       ${statCard("Mejor racha", `${bestStreak(habit, store.entries)} d`)}
     </div>`
   );
-  box.querySelector("#stat-edit").onclick = () => {
-    ctx.app.habitId = habit.id;
-    ctx.app.entryEdit = null;
-    ctx.app.screen = "habit";
-    ctx.render();
-  };
+  box.querySelector("#stat-edit").onclick = () => openCrono(ctx, habit.id, "stats");
   for (const button of box.querySelectorAll("[data-habit]")) {
     button.onclick = () => openStats(ctx, button.dataset.habit);
   }
@@ -376,6 +386,210 @@ function renderStats(ctx) {
   };
   box.querySelector("#month-prev").onclick = () => shift(-1);
   box.querySelector("#month-next").onclick = () => shift(1);
+}
+
+function renderCrono(ctx) {
+  const habit = habitById(ctx.app.habitId);
+  if (!habit) {
+    ctx.app.screen = ctx.app.habitBack || "habits";
+    ctx.render();
+    return;
+  }
+  if (ctx.__cronoPaint) clearInterval(ctx.__cronoPaint);
+  const timer = getTimer(habit.id);
+  const today = todayISO();
+  const amount = dayTotal(habit.id, today, loadHabits().entries);
+  const goal = habit.goal;
+  const pct = goal ? Math.max(0, Math.min(1, amount / goal)) : amount > 0 ? 1 : 0;
+  const ring = 691;
+  const dash = (timer.mode === "pomodoro" ? pomodoroFill(timer) : pct) * ring;
+  const periods = ["hoy", "semana", "mes", "ano"].map((kind) => {
+    const label = kind === "ano" ? "año" : kind;
+    return `${label} ${sumDedicatedMinutes(habit.id, kind)}`;
+  }).join(" · ");
+  const running = !!timer.running;
+  const phase = timer.mode === "pomodoro" ? (timer.phase === "break" ? "Descanso" : "Enfoque") : "Libre";
+  const quick = habit.type === "minutes"
+    ? `<div class="grid grid-cols-3 gap-2">
+        <button type="button" class="h-12 rounded-full border border-line font-medium" data-min="5">+5</button>
+        <button type="button" class="h-12 rounded-full border border-line font-medium" data-min="10">+10</button>
+        <button type="button" class="h-12 rounded-full border border-line font-medium" data-min="15">+15</button>
+      </div>
+      <div class="flex gap-2">
+        <input id="custom-min" class="auth-input flex-1 rounded-xl border border-line bg-transparent px-3 text-fg outline-none" inputmode="numeric" type="number" min="1" placeholder="Otra cantidad"/>
+        <button type="button" id="custom-add" class="h-12 rounded-full border border-line px-4 font-medium">Anotar</button>
+      </div>`
+    : habit.type === "check"
+      ? `<button type="button" id="mark-done" class="h-14 w-full rounded-full bg-sage font-semibold text-bg">${dayDone(habit, amount) ? "Quitar el hecho de hoy" : "Marcar hecho"}</button>`
+      : `<div class="grid grid-cols-3 gap-2">
+          <button type="button" class="h-12 rounded-full border border-line font-medium" data-count="1">+1</button>
+          <button type="button" class="h-12 rounded-full border border-line font-medium" data-count="5">+5</button>
+          <button type="button" class="h-12 rounded-full border border-line font-medium" data-count="10">+10</button>
+        </div>`;
+  const box = shell(
+    ctx,
+    `<button type="button" id="crono-back" class="h-11 rounded-full border border-line px-4 text-sm font-medium">Volver</button>
+    <div class="crono-stage">
+      <p class="text-sm font-medium text-sage" id="crono-phase">${phase}${timer.mode === "pomodoro" ? ` · bloque ${timer.blocks || 0}` : ""}</p>
+      <h1 class="display text-4xl leading-none">${habit.emoji} ${ctx.escapeHtml(habit.name)}</h1>
+      <div class="crono-ring-wrap">
+        <svg class="crono-ring" viewBox="0 0 240 240" aria-hidden="true">
+          <circle class="crono-track" cx="120" cy="120" r="110"></circle>
+          <circle id="crono-arc" class="crono-arc" cx="120" cy="120" r="110" style="stroke-dasharray:${dash} ${ring}"></circle>
+        </svg>
+        <div class="crono-center">
+          <p id="crono-time" class="display crono-clock">${formatClock(displayMs(timer))}</p>
+          <p class="text-sm text-muted">${ctx.escapeHtml(goal ? `${trimNum(amount)} de ${trimNum(goal)}` : progressLabel(habit, amount))}</p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" class="h-11 flex-1 rounded-full border text-sm font-medium ${timer.mode === "libre" ? "border-gold bg-gold/10" : "border-line"}" data-mode="libre">Libre</button>
+        <button type="button" class="h-11 flex-1 rounded-full border text-sm font-medium ${timer.mode === "pomodoro" ? "border-gold bg-gold/10" : "border-line"}" data-mode="pomodoro">Pomodoro</button>
+      </div>
+      ${timer.mode === "pomodoro" ? `<div class="flex flex-col gap-2">
+        <div class="flex gap-2">
+          <button type="button" class="h-11 flex-1 rounded-full border border-line text-sm" data-focus="25">Enfoque 25</button>
+          <button type="button" class="h-11 flex-1 rounded-full border border-line text-sm" data-focus="50">Enfoque 50</button>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="h-11 flex-1 rounded-full border border-line text-sm" data-break="5">Descanso 5</button>
+          <button type="button" class="h-11 flex-1 rounded-full border border-line text-sm" data-break="10">Descanso 10</button>
+        </div>
+        <div class="flex gap-2">
+          <label class="flex flex-1 flex-col gap-1 text-xs text-muted">Enfoque
+            <input id="focus-min" class="auth-input rounded-xl border border-line bg-transparent px-3 text-fg outline-none" inputmode="numeric" type="number" min="1" max="180" value="${timer.focusMin}"/>
+          </label>
+          <label class="flex flex-1 flex-col gap-1 text-xs text-muted">Descanso
+            <input id="break-min" class="auth-input rounded-xl border border-line bg-transparent px-3 text-fg outline-none" inputmode="numeric" type="number" min="1" max="180" value="${timer.breakMin}"/>
+          </label>
+        </div>
+      </div>` : ""}
+      <button type="button" id="crono-main" class="h-14 w-full rounded-full bg-gold font-semibold text-bg">${running ? "Pausar" : "Iniciar"}</button>
+      <button type="button" id="crono-resume" class="h-12 w-full rounded-full border border-line font-medium">Reanudar</button>
+      <button type="button" id="crono-reset" class="h-12 w-full rounded-full border border-line font-medium">Reiniciar</button>
+      <button type="button" id="crono-save" class="h-12 w-full rounded-full border border-line font-medium">Terminar y guardar</button>
+      <p id="crono-note" class="text-center text-sm text-sage">${ctx.escapeHtml(ctx.app.cronoNote || "")}</p>
+      <div class="card flex flex-col gap-2 p-4">
+        <p class="text-sm text-muted">${habit.type === "minutes" ? "Minutos" : "Minutos dedicados"} · ${ctx.escapeHtml(periods)}</p>
+        ${quick}
+      </div>
+    </div>`
+  );
+
+  const paint = () => {
+    const live = getTimer(habit.id);
+    const node = document.getElementById("crono-time");
+    const arc = document.getElementById("crono-arc");
+    const phaseNode = document.getElementById("crono-phase");
+    if (!node || ctx.app.screen !== "crono" || ctx.app.habitId !== habit.id) return;
+    node.textContent = formatClock(displayMs(live));
+    if (arc) {
+      const ratio = live.mode === "pomodoro" ? pomodoroFill(live) : pct;
+      arc.style.strokeDasharray = `${ratio * ring} ${ring}`;
+    }
+    if (phaseNode) {
+      const next = live.mode === "pomodoro" ? (live.phase === "break" ? "Descanso" : "Enfoque") : "Libre";
+      const text = `${next}${live.mode === "pomodoro" ? ` · bloque ${live.blocks || 0}` : ""}`;
+      if (phaseNode.textContent !== text) phaseNode.textContent = text;
+    }
+    const main = document.getElementById("crono-main");
+    if (main) {
+      const label = live.running ? "Pausar" : "Iniciar";
+      if (main.textContent !== label) main.textContent = label;
+    }
+  };
+  ctx.__cronoPaint = setInterval(paint, 250);
+
+  box.querySelector("#crono-back").onclick = () => {
+    clearInterval(ctx.__cronoPaint);
+    ctx.app.screen = ctx.app.habitBack || "habits";
+    ctx.render();
+  };
+  box.querySelector("#crono-main").onclick = () => {
+    const live = getTimer(habit.id);
+    if (live.running) pauseTimer(habit.id);
+    else startTimer(habit.id);
+    ctx.app.cronoNote = "";
+    ctx.render();
+  };
+  box.querySelector("#crono-resume").onclick = () => {
+    const live = getTimer(habit.id);
+    if (!live.running) startTimer(habit.id);
+    ctx.app.cronoNote = "";
+    ctx.render();
+  };
+  box.querySelector("#crono-reset").onclick = () => {
+    resetTimer(habit.id);
+    ctx.render();
+  };
+  box.querySelector("#crono-save").onclick = () => {
+    const taken = takeMinutes(habit.id);
+    if (taken.minutes > 0) {
+      addDedicatedMinutes(habit.id, todayISO(), taken.minutes);
+      ctx.app.cronoNote = `Guardé ${taken.minutes} min.`;
+    } else ctx.app.cronoNote = "Sigue un poco más: guardo desde 30 segundos.";
+    ctx.render();
+  };
+  for (const button of box.querySelectorAll("[data-mode]")) {
+    button.onclick = () => {
+      setTimerMode(habit.id, button.dataset.mode);
+      ctx.render();
+    };
+  }
+  for (const button of box.querySelectorAll("[data-focus]")) {
+    button.onclick = () => {
+      setTimerPresets(habit.id, Number(button.dataset.focus), null);
+      ctx.render();
+    };
+  }
+  for (const button of box.querySelectorAll("[data-break]")) {
+    button.onclick = () => {
+      setTimerPresets(habit.id, null, Number(button.dataset.break));
+      ctx.render();
+    };
+  }
+  const focusInput = box.querySelector("#focus-min");
+  const breakInput = box.querySelector("#break-min");
+  if (focusInput) {
+    focusInput.onchange = () => setTimerPresets(habit.id, focusInput.value, breakInput?.value);
+  }
+  if (breakInput) {
+    breakInput.onchange = () => setTimerPresets(habit.id, focusInput?.value, breakInput.value);
+  }
+  for (const button of box.querySelectorAll("[data-min]")) {
+    button.onclick = () => {
+      addDedicatedMinutes(habit.id, todayISO(), Number(button.dataset.min));
+      ctx.render();
+    };
+  }
+  const custom = box.querySelector("#custom-add");
+  if (custom) {
+    custom.onclick = () => {
+      addDedicatedMinutes(habit.id, todayISO(), box.querySelector("#custom-min").value);
+      ctx.render();
+    };
+  }
+  for (const button of box.querySelectorAll("[data-count]")) {
+    button.onclick = () => {
+      addEntry(habit.id, todayISO(), Number(button.dataset.count));
+      ctx.render();
+    };
+  }
+  const mark = box.querySelector("#mark-done");
+  if (mark) {
+    mark.onclick = () => {
+      if (dayDone(habit, amount)) clearCheck(habit.id, today);
+      else addEntry(habit.id, today, 1);
+      ctx.render();
+    };
+  }
+}
+
+function pomodoroFill(timer) {
+  const mins = timer.phase === "break" ? timer.breakMin : timer.focusMin;
+  const target = Math.max(1, Number(mins) || 1) * 60000;
+  const remaining = displayMs(timer);
+  return Math.max(0, Math.min(1, (target - remaining) / target));
 }
 
 function renderDetail(ctx) {

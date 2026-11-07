@@ -1,3 +1,7 @@
 uploads/
 .DS_Store
 *.log
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

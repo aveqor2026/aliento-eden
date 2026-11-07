@@ -34,7 +34,7 @@ export const HABIT_COLORS = ["rose", "peach", "sand", "mint", "sky", "lilac"];
 export const HABIT_EMOJIS = ["🌬️", "💪", "🦵", "📖", "💧", "🚶", "🌿", "✨", "❤️", "☀️", "🌙", "🎵"];
 
 function emptyStore() {
-  return { habits: [], entries: [], seedImported: false, share: false };
+  return { habits: [], entries: [], times: [], seedImported: false, share: false };
 }
 
 export function guessEmoji(name) {
@@ -139,7 +139,17 @@ export function loadHabits() {
       })
       .filter(Boolean)
       .slice(0, 4000);
-    return { habits, entries, seedImported: parsed.seedImported === true, share: parsed.share === true };
+    const times = (Array.isArray(parsed.times) ? parsed.times : [])
+      .map((entry) => {
+        if (!entry || typeof entry.id !== "string" || !ids.has(entry.habitId)) return null;
+        if (!validDate(entry.date)) return null;
+        const minutes = Math.round(Number(entry.minutes));
+        if (!Number.isFinite(minutes) || minutes <= 0) return null;
+        return { id: entry.id, habitId: entry.habitId, date: entry.date, minutes: Math.min(100000, minutes) };
+      })
+      .filter(Boolean)
+      .slice(0, 4000);
+    return { habits, entries, times, seedImported: parsed.seedImported === true, share: parsed.share === true };
   } catch {
     return emptyStore();
   }
@@ -198,6 +208,7 @@ export function deleteHabit(id) {
   const store = loadHabits();
   store.habits = store.habits.filter((habit) => habit.id !== id);
   store.entries = store.entries.filter((entry) => entry.habitId !== id);
+  store.times = (store.times || []).filter((entry) => entry.habitId !== id);
   saveHabits(store);
 }
 
@@ -244,6 +255,33 @@ export function clearCheck(habitId, date) {
   const store = loadHabits();
   store.entries = store.entries.filter((entry) => !(entry.habitId === habitId && entry.date === date));
   saveHabits(store);
+}
+
+/** Minutos del cronómetro en hábitos de cantidad o sí/no. No toca el conteo. */
+export function addDedicatedMinutes(habitId, date, minutes) {
+  const store = loadHabits();
+  const habit = store.habits.find((item) => item.id === habitId);
+  if (!habit || !validDate(date)) return null;
+  const value = Math.round(Number(minutes));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  if (habit.type === "minutes") return addEntry(habitId, date, value);
+  const entry = { id: newId("t"), habitId, date, minutes: Math.min(100000, value) };
+  store.times = store.times || [];
+  store.times.push(entry);
+  saveHabits(store);
+  return entry;
+}
+
+export function sumDedicatedMinutes(habitId, kind, now = new Date()) {
+  const habit = habitById(habitId);
+  if (!habit) return 0;
+  if (habit.type === "minutes") return sumHabit(habitId, kind, now).total;
+  const range = periodRange(kind, now);
+  const start = isoFromDate(range.start);
+  const end = isoFromDate(range.end);
+  return (loadHabits().times || [])
+    .filter((entry) => entry.habitId === habitId && entry.date >= start && entry.date <= end)
+    .reduce((sum, entry) => sum + entry.minutes, 0);
 }
 
 export function sumHabit(habitId, kind, now = new Date()) {

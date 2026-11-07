@@ -1,4 +1,4 @@
-const CACHE = "aliento-v8";
+const CACHE = "aliento-v9";
 
 const ASSETS = [
   "./",
@@ -9,6 +9,7 @@ const ASSETS = [
   "./cloud.js",
   "./firebase-config.js",
   "./habitos.js",
+  "./cronometro.js",
   "./habitos-ui.js",
   "./habitos-seed.js",
   "./sync.js",

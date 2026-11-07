@@ -1,7 +1,8 @@
 import { getAfirmaciones, setAfirmaciones, resetAfirmacionesToDefaults, nextAfirmacion, restantesEnCiclo } from "./afirmaciones.js";
 import { reportSessionComplete, flushPending, getSyncConfig, setSyncConfig, testSync, loadPending } from "./sync.js";
 import { markLocalEdit } from "./account-data.js";
-import { logSessionBreaths } from "./habitos.js";
+import { addDedicatedMinutes, logSessionBreaths, todayISO } from "./habitos.js";
+import { bootTimer } from "./cronometro.js";
 import { renderHabitScreen } from "./habitos-ui.js";
 import { cheerPerson, cloudConfigured, listGroup } from "./cloud.js";
 import {
@@ -581,7 +582,7 @@ function render() {
   if (app.screen === "signin") return renderSignIn();
   if (app.screen === "denied") return renderDenied();
   if (app.screen === "access") return renderAccess();
-  if (["habits", "habit", "habit-form", "reports", "stats", "group"].includes(app.screen)) {
+  if (["habits", "habit", "habit-form", "reports", "stats", "group", "crono"].includes(app.screen)) {
     renderHabitScreen({
       root,
       app,
@@ -611,11 +612,12 @@ function render() {
 function updateTabbar() {
   const nav = document.getElementById("tabbar");
   if (!nav) return;
-  const hidden = new Set(["session", "safety", "checking", "signin", "denied"]);
+  const hidden = new Set(["session", "safety", "checking", "signin", "denied", "crono"]);
   const show = !hidden.has(app.screen);
   nav.hidden = !show;
   document.body.classList.toggle("has-tabs", show);
   document.body.classList.toggle("session-dark", app.screen === "session");
+  document.body.classList.toggle("timer-focus", app.screen === "crono");
   const tabs = [
     ["habits", "Hoy", "sun"],
     ["reports", "Informes", "grid"],
@@ -1540,6 +1542,11 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
 }
+
+bootTimer((habitId, minutes) => {
+  if (minutes > 0) addDedicatedMinutes(habitId, todayISO(), minutes);
+  if (app.screen === "crono" || app.screen === "habits" || app.screen === "stats") render();
+});
 
 startCloud({
   onChecking() {
