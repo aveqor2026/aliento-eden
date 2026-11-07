@@ -748,6 +748,30 @@ function renderHome() {
     render();
   };
   left.appendChild(startBtn);
+  left.appendChild(
+    el(`<details class="rounded-2xl border border-line p-4">
+      <summary class="cursor-pointer font-medium text-gold">Cómo funciona cada modo</summary>
+      <div class="mt-3 grid gap-3 text-sm text-muted">
+        <div>
+          <p class="font-semibold">Ronda</p>
+          <p>Ritmos: Despacio (inhala 4 y suelta 4 segundos), Mediano (inhala 3 y suelta 2) y Rápido (inhala 2 y suelta 1).</p>
+          <p>Respiras al ritmo elegido todas las veces que quieras, hasta que tocas para soltar.</p>
+          <p>"Suelta todo" dura 2.2 segundos para vaciar los pulmones.</p>
+          <p>La pausa sin aire no tiene tope. Aquí salen tus frases, y tocas cuando el cuerpo pida aire.</p>
+          <p>Luego exhalas profundo 15 segundos y descansas 7, y empieza la siguiente ronda.</p>
+          <p>Se guarda tu récord de pausa y cada ronda cuenta como una respiración en tu registro.</p>
+        </div>
+        <div>
+          <p class="font-semibold">Calma</p>
+          <p>Inhala 4, sostén 7 y suelta 8. Son 4 ciclos por defecto y puedes elegir de 2 a 8.</p>
+        </div>
+        <div>
+          <p class="font-semibold">Caja</p>
+          <p>Inhala 4, sostén 4, suelta 4 y espera 4 con los pulmones vacíos. Son 6 ciclos por defecto y puedes elegir de 2 a 12.</p>
+        </div>
+      </div>
+    </details>`)
+  );
   const afCount = getAfirmaciones().length;
   const afLine =
     afCount === 0
