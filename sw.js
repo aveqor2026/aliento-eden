@@ -1,26 +1,21 @@
-const CACHE = "aliento-v2";
+const CACHE = "aliento-v6";
 
 const ASSETS = [
   "./",
   "./index.html",
   "./app.js",
   "./afirmaciones.js",
+  "./account-data.js",
+  "./cloud.js",
+  "./firebase-config.js",
+  "./habitos.js",
+  "./habitos-ui.js",
+  "./habitos-seed.js",
   "./sync.js",
   "./s.css",
   "./extra.css",
   "./favicon.svg",
   "./manifest.json",
-  "./images/02-palabra-biblia.jpg",
-  "./images/03-decisiones.jpg",
-  "./images/04-eden-montanas.jpg",
-  "./images/04b-eden-playa.jpg",
-  "./images/05-recursos-eden.jpg",
-  "./images/06-construyo-leyendo.jpg",
-  "./images/07-camino-paz.jpg",
-  "./images/08-familia-esposa.jpg",
-  "./images/09-aveqor-crece.jpg",
-  "./images/10-casa-oracion-pulpito.jpg",
-  "./images/11-hospital-ambulancia.jpg",
 ];
 
 self.addEventListener("install", (event) => {

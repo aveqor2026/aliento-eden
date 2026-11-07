@@ -1,8 +1,11 @@
+import { markLocalEdit } from "./account-data.js";
+
 /**
  * Afirmaciones de Aliento.
- * Defaults abajo; en la app se editan desde Ajustes y se guardan
- * en localStorage (clave aliento-af-list). La rotación usa siempre
- * la lista actual (clave aliento-af-queue).
+ * La lista de inicio está abajo. En la app se edita desde Afirmaciones
+ * y se guarda en localStorage (clave aliento-af-list), también si queda vacía.
+ * Sin esa clave se usan las frases de inicio.
+ * La rotación usa siempre la lista actual (clave aliento-af-queue).
  */
 
 export const DEFAULT_AFIRMACIONES = [
@@ -17,38 +20,6 @@ export const DEFAULT_AFIRMACIONES = [
   "AVEQOR crece sin depender de mí; yo camino hacia EDÉN.",
 ];
 
-/**
- * Fondo de la pausa, solo si el texto coincide exactamente.
- * La primera frase (Padre e Hijo) no tiene imagen: ni rostros sagrados ni cruces.
- * Frases editadas que no estén aquí se muestran solo en texto.
- * Reservadas en images/ (sin mapa todavía): 04b-eden-playa.jpg,
- * 10-casa-oracion-pulpito.jpg, 11-hospital-ambulancia.jpg.
- */
-const IMAGE_FILE_BY_DEFAULT_INDEX = {
-  1: "02-palabra-biblia.jpg",
-  2: "03-decisiones.jpg",
-  3: "04-eden-montanas.jpg",
-  4: "05-recursos-eden.jpg",
-  5: "06-construyo-leyendo.jpg",
-  6: "07-camino-paz.jpg",
-  7: "08-familia-esposa.jpg",
-  8: "09-aveqor-crece.jpg",
-};
-
-export const AFIRMACION_IMAGES = Object.fromEntries(
-  Object.entries(IMAGE_FILE_BY_DEFAULT_INDEX).map(([index, file]) => [
-    DEFAULT_AFIRMACIONES[Number(index)],
-    `images/${file}`,
-  ])
-);
-
-/** @param {string} text @returns {string | null} ruta relativa o null (solo texto) */
-export function imageForAfirmacion(text) {
-  if (typeof text !== "string") return null;
-  const src = AFIRMACION_IMAGES[text.trim()];
-  return src || null;
-}
-
 const LIST_KEY = "aliento-af-list";
 const QUEUE_KEY = "aliento-af-queue";
 
@@ -61,59 +32,59 @@ function shuffle(arr) {
   return a;
 }
 
-/** Lista actual (editada o defaults). Siempre 1–12 frases no vacías. */
+function cleanList(list) {
+  return (list || [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+}
+
+/** Lista actual. Sin clave guardada: las de inicio. Una lista vacía guardada se respeta. */
 export function getAfirmaciones() {
   try {
     const raw = localStorage.getItem(LIST_KEY);
-    if (!raw) return DEFAULT_AFIRMACIONES.slice();
+    if (raw == null) return DEFAULT_AFIRMACIONES.slice();
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return DEFAULT_AFIRMACIONES.slice();
-    const cleaned = arr
-      .map((s) => (typeof s === "string" ? s.trim() : ""))
-      .filter((s) => s.length > 0)
-      .slice(0, 12);
-    return cleaned.length ? cleaned : DEFAULT_AFIRMACIONES.slice();
+    return cleanList(arr);
   } catch {
     return DEFAULT_AFIRMACIONES.slice();
   }
 }
 
+function writeQueue(n) {
+  const fresh = { order: n ? shuffle([...Array(n).keys()]) : [], nextIndex: 0 };
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(fresh));
+  markLocalEdit();
+  return fresh;
+}
+
 /**
- * Guarda la lista editada.
+ * Guarda la lista editada, sin tope de cantidad.
+ * Una lista vacía queda guardada como vacía (no vuelve sola a las de inicio).
  * @param {string[]} list
- * @param {{ resetQueue?: boolean }} [opts] si resetQueue, reinicia la rotación
+ * @param {{ resetQueue?: boolean }} [opts] resetQueue reinicia la rotación aunque no cambie la cantidad
  */
 export function setAfirmaciones(list, opts = {}) {
-  const cleaned = (list || [])
-    .map((s) => (typeof s === "string" ? s.trim() : ""))
-    .filter((s) => s.length > 0)
-    .slice(0, 12);
-  if (cleaned.length === 0) {
-    localStorage.removeItem(LIST_KEY);
+  const prevCount = getAfirmaciones().length;
+  const cleaned = cleanList(list);
+  localStorage.setItem(LIST_KEY, JSON.stringify(cleaned));
+  if (opts.resetQueue === true || cleaned.length !== prevCount) {
+    writeQueue(cleaned.length);
   } else {
-    localStorage.setItem(LIST_KEY, JSON.stringify(cleaned));
+    markLocalEdit();
   }
-  const reset = opts.resetQueue !== false; // por defecto reinicia cola al guardar
-  if (reset) {
-    const n = getAfirmaciones().length;
-    const fresh = { order: shuffle([...Array(n).keys()]), nextIndex: 0 };
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(fresh));
-  }
-  return getAfirmaciones();
+  return cleaned.slice();
 }
 
 export function resetAfirmacionesToDefaults() {
   localStorage.removeItem(LIST_KEY);
-  const n = DEFAULT_AFIRMACIONES.length;
-  localStorage.setItem(
-    QUEUE_KEY,
-    JSON.stringify({ order: shuffle([...Array(n).keys()]), nextIndex: 0 })
-  );
+  writeQueue(DEFAULT_AFIRMACIONES.length);
   return DEFAULT_AFIRMACIONES.slice();
 }
 
 function loadQueue() {
   const n = getAfirmaciones().length;
+  if (n === 0) return writeQueue(0);
   try {
     const raw = localStorage.getItem(QUEUE_KEY);
     if (!raw) throw new Error("empty");
@@ -131,24 +102,23 @@ function loadQueue() {
     }
     return q;
   } catch {
-    const fresh = { order: shuffle([...Array(n).keys()]), nextIndex: 0 };
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(fresh));
-    return fresh;
+    return writeQueue(n);
   }
 }
 
 function saveQueue(q) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  markLocalEdit();
 }
 
-/** Siguiente afirmación sin repetir; persiste entre sesiones. */
+/** Siguiente afirmación sin repetir; persiste entre sesiones. Lista vacía: cadena vacía. */
 export function nextAfirmacion() {
   const list = getAfirmaciones();
   const n = list.length;
   if (n === 0) return "";
   let q = loadQueue();
   if (q.nextIndex >= n) {
-    q = { order: shuffle([...Array(n).keys()]), nextIndex: 0 };
+    q = writeQueue(n);
   }
   const idx = q.order[q.nextIndex];
   q.nextIndex += 1;
@@ -157,8 +127,10 @@ export function nextAfirmacion() {
 }
 
 export function restantesEnCiclo() {
+  const n = getAfirmaciones().length;
+  if (n === 0) return 0;
   const q = loadQueue();
-  return Math.max(0, getAfirmaciones().length - q.nextIndex);
+  return Math.max(0, n - q.nextIndex);
 }
 
 /** Compat: array por defecto (no mutar). Preferir getAfirmaciones(). */

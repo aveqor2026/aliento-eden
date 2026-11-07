@@ -1,5 +1,18 @@
-import { getAfirmaciones, setAfirmaciones, resetAfirmacionesToDefaults, nextAfirmacion, restantesEnCiclo, AFIRMACION_IMAGES, imageForAfirmacion } from "./afirmaciones.js";
+import { getAfirmaciones, setAfirmaciones, resetAfirmacionesToDefaults, nextAfirmacion, restantesEnCiclo } from "./afirmaciones.js";
 import { reportSessionComplete, flushPending, getSyncConfig, setSyncConfig, testSync, loadPending } from "./sync.js";
+import { markLocalEdit } from "./account-data.js";
+import { logSessionBreaths } from "./habitos.js";
+import { renderHabitScreen } from "./habitos-ui.js";
+import { cheerPerson, cloudConfigured, listGroup } from "./cloud.js";
+import {
+  fetchAllowlist,
+  grantEmail,
+  revokeEmail,
+  signInWithGoogle,
+  signOutCloud,
+  spanishAuthError,
+  startCloud,
+} from "./cloud.js";
 
 const STORAGE = "aliento-af-v1";
 const PACES = [
@@ -72,6 +85,11 @@ function loadState() {
 
 function saveState(s) {
   localStorage.setItem(STORAGE, JSON.stringify(s));
+  markLocalEdit();
+}
+
+function lugarDatos() {
+  return app.account?.configured ? "en tu cuenta" : "en este teléfono";
 }
 
 function fmtHold(sec) {
@@ -220,6 +238,7 @@ const app = {
   soundOn: false,
   result: null,
   session: null, // runtime for active session
+  account: { configured: false, email: "", name: "", isAdmin: false, error: "", reason: "" },
 };
 
 const root = document.getElementById("app");
@@ -299,6 +318,8 @@ async function finishSession(result) {
   stopSessionTimers();
   stopTone();
 
+  const breathAdded = logSessionBreaths(result.rounds, `fin-${result.mode || "sesion"}-${Date.now()}`);
+
   let syncInfo = { status: "skip" };
   try {
     const r = await reportSessionComplete({
@@ -314,7 +335,7 @@ async function finishSession(result) {
     syncInfo = { status: "queued", pending: loadPending().length, error: e?.message };
   }
 
-  app.result = { ...result, sync: syncInfo };
+  app.result = { ...result, sync: syncInfo, breathAdded };
   app.screen = "done";
   render();
 }
@@ -331,45 +352,6 @@ function stopSessionTimers() {
 
 function isHoldKind(kind) {
   return kind === "hold-empty" || kind === "hold-full" || kind === "recover-hold";
-}
-
-function ensureHoldBackdrop() {
-  let layer = document.getElementById("hold-backdrop");
-  if (layer) return layer;
-  layer = document.createElement("div");
-  layer.id = "hold-backdrop";
-  layer.setAttribute("aria-hidden", "true");
-  document.body.prepend(layer);
-  return layer;
-}
-
-function showHoldBackdrop(src) {
-  const layer = ensureHoldBackdrop();
-  if (layer.dataset.src !== src) {
-    layer.dataset.src = src;
-    layer.style.backgroundImage = `url("${src}")`;
-  }
-  document.body.classList.add("hold-has-image");
-  layer.classList.add("is-on");
-}
-
-function clearHoldBackdrop() {
-  const layer = document.getElementById("hold-backdrop");
-  if (layer) {
-    layer.style.transition = "none";
-    layer.classList.remove("is-on");
-    void layer.offsetWidth;
-    layer.style.transition = "";
-  }
-  document.body.classList.remove("hold-has-image");
-}
-
-function preloadHoldImages() {
-  for (const src of Object.values(AFIRMACION_IMAGES)) {
-    const img = new Image();
-    img.decoding = "async";
-    img.src = src;
-  }
 }
 
 function startRondaSession() {
@@ -584,14 +566,35 @@ function icon(name) {
     mute: '<path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     minus: '<path d="M5 12h14"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    sliders: '<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/>',
   };
   return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
 
 function render() {
   stopSessionTimers();
-  if (app.screen !== "session") clearHoldBackdrop();
-  if (app.screen === "home") renderHome();
+  updateTabbar();
+  if (app.screen === "checking") return renderChecking();
+  if (app.screen === "signin") return renderSignIn();
+  if (app.screen === "denied") return renderDenied();
+  if (app.screen === "access") return renderAccess();
+  if (["habits", "habit", "habit-form", "reports", "stats", "group"].includes(app.screen)) {
+    renderHabitScreen({
+      root,
+      app,
+      el,
+      escapeHtml,
+      icon,
+      render,
+      lugarDatos,
+      cloudOn: cloudConfigured(),
+      listGroup,
+      cheer: cheerPerson,
+    });
+  } else if (app.screen === "home") renderHome();
   else if (app.screen === "safety") renderSafety();
   else if (app.screen === "session") {
     if (app.plan.mode === "ronda") {
@@ -603,6 +606,40 @@ function render() {
     }
   } else if (app.screen === "done") renderDone();
   else if (app.screen === "settings") renderSettings();
+}
+
+function updateTabbar() {
+  const nav = document.getElementById("tabbar");
+  if (!nav) return;
+  const hidden = new Set(["session", "safety", "checking", "signin", "denied"]);
+  const show = !hidden.has(app.screen);
+  nav.hidden = !show;
+  document.body.classList.toggle("has-tabs", show);
+  document.body.classList.toggle("session-dark", app.screen === "session");
+  const tabs = [
+    ["habits", "Hoy", "sun"],
+    ["reports", "Informes", "grid"],
+    ["group", "Grupo", "people"],
+    ["home", "Respirar", "wind"],
+    ["settings", "Ajustes", "sliders"],
+  ];
+  const active = ["stats", "habit", "habit-form"].includes(app.screen)
+    ? "reports"
+    : app.screen === "access"
+      ? "settings"
+      : app.screen;
+  nav.innerHTML = tabs
+    .map(
+      ([id, label, glyph]) =>
+        `<button type="button" class="${active === id ? "is-on" : ""}" data-tab="${id}">${icon(glyph)}<span>${label}</span></button>`
+    )
+    .join("");
+  for (const button of nav.querySelectorAll("[data-tab]")) {
+    button.onclick = () => {
+      app.screen = button.dataset.tab;
+      render();
+    };
+  }
 }
 
 function renderHome() {
@@ -625,12 +662,24 @@ function renderHome() {
     el(`<header class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-3">
         <p class="flex items-center gap-2 text-sm font-medium tracking-wide text-sage uppercase">${icon("wind")}Tu práctica</p>
-        <button type="button" id="btn-settings" class="text-sm font-medium text-gold underline-offset-4 hover:underline">Afirmaciones</button>
+        <div class="flex items-center gap-3">
+          ${app.account?.isAdmin ? `<button type="button" id="btn-access" class="text-sm font-medium text-sage">Personas</button>` : ""}
+          <button type="button" id="btn-settings" class="text-sm font-medium text-sage">Afirmaciones</button>
+        </div>
       </div>
       <h1 class="display text-5xl leading-none text-fg">Aliento</h1>
-      <p class="max-w-md text-muted">Tu práctica en este teléfono. En la pausa aparece una afirmación; puedes editarlas cuando quieras.</p>
+      <p class="max-w-md text-muted">${app.account?.configured ? "Tu práctica en tu cuenta." : "Tu práctica en este teléfono."} En la pausa aparece una afirmación, solo en texto. Puedes cambiarlas cuando quieras.</p>
+      ${accountBar()}
     </header>`)
   );
+  const habitsBtn = el(
+    `<button type="button" class="h-12 w-full rounded-full border border-line font-medium">Hábitos</button>`
+  );
+  habitsBtn.onclick = () => {
+    app.screen = "habits";
+    render();
+  };
+  left.appendChild(habitsBtn);
 
   // Mode cards
   const modes = el(`<section class="flex flex-col gap-3" aria-label="Modo"></section>`);
@@ -697,9 +746,14 @@ function renderHome() {
     render();
   };
   left.appendChild(startBtn);
+  const afCount = getAfirmaciones().length;
+  const afLine =
+    afCount === 0
+      ? "No hay afirmaciones guardadas. En la pausa solo verás el tiempo. Puedes añadir frases en Afirmaciones."
+      : `Afirmaciones: ${afCount} en ciclo · quedan ${restantesEnCiclo()}.`;
   left.appendChild(
     el(
-      `<p class="text-sm text-muted">Práctica de bienestar, no es consejo médico. Si te mareas, paras y respiras normal. Afirmaciones: ${getAfirmaciones().length} en ciclo · quedan ${restantesEnCiclo()}.</p>`
+      `<p class="text-sm text-muted">Práctica de bienestar, no es consejo médico. Si te mareas, paras y respiras normal. ${afLine}</p>`
     )
   );
 
@@ -707,6 +761,10 @@ function renderHome() {
   queueMicrotask(() => {
     const b = document.getElementById("btn-settings");
     if (b) b.onclick = () => { app.screen = "settings"; render(); };
+    const access = document.getElementById("btn-access");
+    if (access) access.onclick = () => { app.screen = "access"; render(); };
+    const out = document.getElementById("btn-signout");
+    if (out) out.onclick = () => { signOutCloud().catch(() => {}); };
   });
 
   // Right column — stats
@@ -856,10 +914,9 @@ function renderSession() {
   updateSessionDom();
 }
 
-function updateSessionDom() {
-  const wrap = document.getElementById("session-root");
-  if (!wrap || !app.session) return;
+function sessionView() {
   const s = app.session;
+  if (!s) return null;
   let label, hint, kind, seconds, open, progress, roundLine, showHoldBtn, showBreatheBtn, showContinueBtn, timerText;
 
   if (s.mode === "ronda") {
@@ -880,7 +937,7 @@ function updateSessionDom() {
         : String(Math.max(0, Math.ceil(seconds - s.elapsed)));
   } else {
     const step = s.steps[s.index];
-    if (!step) return;
+    if (!step) return null;
     label = step.label;
     hint = step.hint;
     kind = step.kind;
@@ -895,15 +952,30 @@ function updateSessionDom() {
   }
 
   const level = levelFor(kind, progress);
-  const inHold = isHoldKind(kind) && s.afirmacion;
-  const holdImage = inHold ? imageForAfirmacion(s.afirmacion) : null;
+  const inHold = isHoldKind(kind) && !!s.afirmacion;
   const holdingEmpty = kind === "hold-empty" && s.mode === "ronda";
+  const key = [
+    s.mode,
+    s.mode === "ronda" ? s.phase : String(s.index),
+    inHold ? "1" : "0",
+    s.afirmacion || "",
+    roundLine,
+    showHoldBtn ? "1" : "0",
+    showBreatheBtn ? "1" : "0",
+    showContinueBtn ? "1" : "0",
+    sessionPaused ? "1" : "0",
+    app.soundOn ? "1" : "0",
+    s.toast || "",
+    person().name,
+    label,
+    hint,
+  ].join("\u0001");
 
-  wrap.innerHTML = `
+  const html = `
     <header class="flex w-full items-center justify-between gap-3">
       <div class="text-left">
         <p class="text-sm font-medium text-sage">${escapeHtml(person().name)}</p>
-        <p class="font-medium">${roundLine}</p>
+        <p class="font-medium">${escapeHtml(roundLine)}</p>
       </div>
       <button type="button" class="grid size-11 place-items-center rounded-full border border-line" id="btn-sound" aria-label="Sonido">
         ${app.soundOn ? icon("volume") : icon("mute")}
@@ -912,19 +984,19 @@ function updateSessionDom() {
 
     ${
       inHold
-        ? `<div class="afirmacion-panel flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center w-full" data-hold-image="${holdImage ? escapeHtml(holdImage) : ""}">
-            <p class="text-xs tracking-wide text-muted uppercase">${holdingEmpty ? "Aguanta · afirma" : label}</p>
+        ? `<div class="afirmacion-panel card flex flex-1 flex-col items-center justify-center gap-6 p-5 text-center w-full">
+            <p class="hold-kicker text-xs tracking-wide uppercase">${holdingEmpty ? "Aguanta · afirma" : escapeHtml(label)}</p>
             <p class="afirmacion-texto display text-balance" aria-live="polite">${escapeHtml(s.afirmacion)}</p>
-            <p class="display text-4xl leading-none tabular-nums text-muted">${timerText}</p>
+            <p class="hold-timer display text-4xl leading-none tabular-nums" data-timer>${escapeHtml(timerText)}</p>
           </div>`
         : `<div class="flex flex-1 flex-col items-center justify-center gap-6 w-full">
             <div class="breath" data-phase="${kind}" style="--level:${level}">
               <div class="breath-fill"></div>
             </div>
             <div class="flex flex-col items-center gap-1 text-center">
-              <p class="display text-4xl leading-none">${label}</p>
-              <p class="text-muted">${hint}</p>
-              <p class="display text-5xl leading-none tabular-nums mt-2">${timerText}</p>
+              <p class="display text-4xl leading-none">${escapeHtml(label)}</p>
+              <p class="text-muted">${escapeHtml(hint)}</p>
+              <p class="display text-5xl leading-none tabular-nums mt-2" data-timer>${escapeHtml(timerText)}</p>
             </div>
           </div>`
     }
@@ -945,9 +1017,10 @@ function updateSessionDom() {
     </div>
   `;
 
-  if (holdImage) showHoldBackdrop(holdImage);
-  else clearHoldBackdrop();
+  return { key, html, timerText, level };
+}
 
+function bindSessionControls(wrap) {
   wrap.querySelector("#btn-sound").onclick = () => {
     app.soundOn = !app.soundOn;
     if (app.soundOn) ensureAudio();
@@ -960,21 +1033,22 @@ function updateSessionDom() {
     updateSessionDom();
   };
   wrap.querySelector("#btn-stop").onclick = () => {
-    // If mid hold-empty with time, save it
-    if (s.mode === "ronda" && s.phase === "hold-empty" && s.holdElapsed >= 1) {
-      s.holdSec = Math.max(1, Math.round(s.holdElapsed));
-      recordHold(s.holdSec);
-      s.roundsDone += 1;
-      s.bestHold = s.bestHold == null ? s.holdSec : Math.max(s.bestHold, s.holdSec);
+    if (!app.session) return;
+    const cur = app.session;
+    if (cur.mode === "ronda" && cur.phase === "hold-empty" && cur.holdElapsed >= 1) {
+      cur.holdSec = Math.max(1, Math.round(cur.holdElapsed));
+      recordHold(cur.holdSec);
+      cur.roundsDone += 1;
+      cur.bestHold = cur.bestHold == null ? cur.holdSec : Math.max(cur.bestHold, cur.holdSec);
     }
     stopTone();
-    if (s.mode === "ronda") {
-      if (s.roundsDone > 0) {
+    if (cur.mode === "ronda") {
+      if (cur.roundsDone > 0) {
         finishSession({
           mode: "ronda",
-          rounds: s.roundsDone,
-          longestHold: s.bestHold,
-          recordBeat: s.beat,
+          rounds: cur.roundsDone,
+          longestHold: cur.bestHold,
+          recordBeat: cur.beat,
         });
       } else {
         app.screen = "home";
@@ -984,8 +1058,8 @@ function updateSessionDom() {
       }
     } else {
       finishSession({
-        mode: s.mode,
-        rounds: Math.max(1, (s.steps[s.index]?.round || 1) - (s.steps[s.index]?.kind === "done" ? 0 : 0)),
+        mode: cur.mode,
+        rounds: Math.max(1, (cur.steps[cur.index]?.round || 1) - (cur.steps[cur.index]?.kind === "done" ? 0 : 0)),
         longestHold: null,
         recordBeat: false,
       });
@@ -993,20 +1067,38 @@ function updateSessionDom() {
   };
 
   const holdBtn = wrap.querySelector("#btn-hold");
-  if (holdBtn) {
-    holdBtn.onclick = () => enterPhase("release");
-  }
+  if (holdBtn) holdBtn.onclick = () => enterPhase("release");
   const breatheBtn = wrap.querySelector("#btn-breathe");
   if (breatheBtn) {
     breatheBtn.onclick = () => {
-      s.holdSec = Math.max(1, Math.round(s.holdElapsed));
+      if (!app.session) return;
+      app.session.holdSec = Math.max(1, Math.round(app.session.holdElapsed));
       enterPhase("deep-exhale");
     };
   }
   const contBtn = wrap.querySelector("#btn-continue");
   if (contBtn) {
-    contBtn.onclick = () => enterPhase("inhale", { round: s.round + 1, breath: 1 });
+    contBtn.onclick = () => {
+      if (!app.session) return;
+      enterPhase("inhale", { round: app.session.round + 1, breath: 1 });
+    };
   }
+}
+
+function updateSessionDom() {
+  const wrap = document.getElementById("session-root");
+  if (!wrap || !app.session) return;
+  const view = sessionView();
+  if (!view) return;
+  if (wrap._viewKey !== view.key) {
+    wrap._viewKey = view.key;
+    wrap.innerHTML = view.html;
+    bindSessionControls(wrap);
+  }
+  const timer = wrap.querySelector("[data-timer]");
+  if (timer && timer.textContent !== view.timerText) timer.textContent = view.timerText;
+  const breath = wrap.querySelector(".breath");
+  if (breath) breath.style.setProperty("--level", String(view.level));
 }
 
 function renderDone() {
@@ -1029,7 +1121,8 @@ function renderDone() {
       <h1 class="display text-4xl">Listo, ${escapeHtml(person().name)}</h1>
       <p class="text-muted">${r.rounds} ${r.mode === "ronda" ? (r.rounds === 1 ? "ronda" : "rondas") : "ciclos"} en esta sesión${r.longestHold == null ? "" : ` · pausa ${fmtHold(r.longestHold)}`}</p>
       ${r.recordBeat ? `<p class="text-sage">Nuevo récord.</p>` : ""}
-      <p class="text-sm text-muted">Quedó guardado en este teléfono.</p>
+      <p class="text-sm text-muted">Quedó guardado ${lugarDatos()}.</p>
+      ${r.breathAdded ? `<p class="text-sage">Anoté ${r.breathAdded} en el hábito Respiraciones.</p>` : ""}
       ${syncLine}
     </div>`)
   );
@@ -1059,8 +1152,6 @@ function renderDone() {
 
 
 function renderSettings() {
-  const list = getAfirmaciones();
-  while (list.length < 9) list.push("");
   const cfg = getSyncConfig();
   const pending = loadPending().length;
 
@@ -1071,44 +1162,100 @@ function renderSettings() {
     el(`<header class="flex flex-col gap-2">
       <p class="text-sm font-medium text-sage">Ajustes</p>
       <h1 class="display text-4xl leading-none">Afirmaciones</h1>
-      <p class="text-muted">Estas frases aparecen de una en una en la pausa. Edítalas aquí; se guardan en este teléfono. Si el texto coincide exactamente con una frase de inicio, se ve su imagen. Una frase propia queda solo en texto.</p>
+      <p class="text-muted">Estas frases salen de una en una en la pausa, solo en texto. Se guardan solas ${lugarDatos()}${app.account?.configured ? " y aparecen al entrar en otro aparato" : " y siguen aquí al recargar"}. Añade, cambia o quita las que quieras. No hay límite.</p>
     </header>`)
   );
-  const form = el(`<div class="flex flex-col gap-3" id="af-form"></div>`);
-  list.slice(0, 9).forEach((text, i) => {
-    form.appendChild(
-      el(`<label class="card flex flex-col gap-2 p-4">
-        <span class="text-xs tracking-wide text-muted uppercase">Frase ${i + 1}</span>
-        <textarea class="af-input display h-auto min-h-[4.5rem] w-full resize-y bg-transparent text-base text-fg outline-none leading-snug" rows="3" data-i="${i}">${escapeHtml(text)}</textarea>
-      </label>`)
-    );
-  });
-  box.appendChild(form);
-  const status = el(`<p class="text-sm text-muted" id="af-status"></p>`);
+
+  const addBar = el(`<div class="af-add-bar"></div>`);
+  const addBtn = el(
+    `<button type="button" id="af-add" class="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-gold font-semibold text-bg">${icon("plus")}Añadir frase</button>`
+  );
+  addBar.appendChild(addBtn);
+  box.appendChild(addBar);
+
+  const status = el(`<p class="text-sm text-muted" id="af-status">Se guardan solas ${lugarDatos()}.</p>`);
   box.appendChild(status);
 
-  const afActions = el(`<div class="flex flex-col gap-3"></div>`);
-  const save = el(`<button type="button" class="h-14 w-full rounded-full bg-gold font-semibold text-bg">Guardar frases</button>`);
-  const reset = el(`<button type="button" class="h-12 w-full rounded-full border border-line font-medium">Volver a las 9 de inicio</button>`);
-  save.onclick = () => {
-    const inputs = [...form.querySelectorAll(".af-input")];
-    const next = inputs.map((el) => el.value);
-    const saved = setAfirmaciones(next, { resetQueue: true });
-    status.textContent = `Guardadas ${saved.length}. La rotación empieza de nuevo con esta lista.`;
-    status.className = "text-sm text-sage";
-  };
-  reset.onclick = () => {
-    if (!confirm("¿Restablecer las 9 frases originales?")) return;
-    const d = resetAfirmacionesToDefaults();
-    form.querySelectorAll(".af-input").forEach((el, i) => {
-      el.value = d[i] || "";
+  const empty = el(
+    `<p class="text-muted" id="af-empty">No hay frases. La pausa sigue igual: solo verás el tiempo hasta que añadas una.</p>`
+  );
+  box.appendChild(empty);
+
+  const form = el(`<div class="flex flex-col gap-3" id="af-form"></div>`);
+  box.appendChild(form);
+
+  function renumber() {
+    const cards = [...form.querySelectorAll(".af-card")];
+    cards.forEach((card, i) => {
+      const n = i + 1;
+      card.querySelector(".af-label").textContent = `Frase ${n}`;
+      card.querySelector(".af-remove").setAttribute("aria-label", `Quitar frase ${n}`);
     });
-    status.textContent = "Restablecidas las 9 de inicio. Rotación reiniciada.";
+    empty.hidden = cards.length > 0;
+  }
+
+  function persistFromDom() {
+    const next = [...form.querySelectorAll(".af-input")].map((node) => node.value);
+    try {
+      const saved = setAfirmaciones(next);
+      if (saved.length === 0) {
+        status.textContent = `Lista vacía, guardada ${lugarDatos()}. En la pausa no saldrá ninguna frase.`;
+      } else {
+        status.textContent = `Guardadas ${saved.length} ${saved.length === 1 ? "frase" : "frases"} ${lugarDatos()}.`;
+      }
+      status.className = "text-sm text-sage";
+    } catch {
+      status.textContent = "No se pudo guardar. Revisa el espacio del teléfono.";
+      status.className = "text-sm text-muted";
+    }
+    renumber();
+  }
+
+  function addRow(text, focus) {
+    const card = el(`<div class="af-card card flex flex-col gap-2 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <span class="af-label text-xs tracking-wide text-muted uppercase">Frase</span>
+        <button type="button" class="af-remove inline-flex items-center justify-center rounded-full border border-line text-sm font-medium">Quitar</button>
+      </div>
+      <textarea class="af-input display text-base text-fg outline-none leading-snug" rows="3" placeholder="Escribe la afirmación" autocapitalize="sentences" autocomplete="off" spellcheck="true" enterkeyhint="done"></textarea>
+    </div>`);
+    const ta = card.querySelector(".af-input");
+    ta.value = text;
+    const saveSoon = () => persistFromDom();
+    ta.addEventListener("input", saveSoon);
+    ta.addEventListener("change", saveSoon);
+    ta.addEventListener("blur", saveSoon);
+    card.querySelector(".af-remove").onclick = () => {
+      card.remove();
+      persistFromDom();
+    };
+    form.appendChild(card);
+    renumber();
+    if (focus) {
+      ta.focus();
+      card.scrollIntoView({ block: "center" });
+    }
+    return card;
+  }
+
+  for (const text of getAfirmaciones()) addRow(text, false);
+  renumber();
+
+  addBtn.onclick = () => addRow("", true);
+
+  const reset = el(
+    `<button type="button" class="h-12 w-full rounded-full border border-line font-medium">Volver a las frases de inicio</button>`
+  );
+  reset.onclick = () => {
+    if (!confirm("¿Volver a las frases de inicio? Las que guardaste se reemplazan.")) return;
+    const d = resetAfirmacionesToDefaults();
+    form.replaceChildren();
+    for (const text of d) addRow(text, false);
+    renumber();
+    status.textContent = "Volviste a las frases de inicio.";
     status.className = "text-sm text-sage";
   };
-  afActions.appendChild(save);
-  afActions.appendChild(reset);
-  box.appendChild(afActions);
+  box.appendChild(reset);
 
   // —— Sync hábitos ——
   box.appendChild(
@@ -1178,12 +1325,287 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-preloadHoldImages();
-ensureHoldBackdrop();
+function accountBar() {
+  if (!app.account?.configured) {
+    return `<p class="text-sm text-muted">Aún sin cuenta de Google: tus frases y sesiones siguen en este teléfono.</p>`;
+  }
+  return `<div class="flex items-center justify-between gap-3">
+    <p class="account-email text-sm text-muted">${escapeHtml(app.account.email || "")}</p>
+    <button type="button" id="btn-signout" class="h-11 shrink-0 rounded-full border border-line px-4 text-sm font-medium">Salir</button>
+  </div>`;
+}
+
+function authMain() {
+  root.innerHTML = "";
+  const main = el(`<main class="app-shell mx-auto flex min-h-[80dvh] w-full max-w-lg flex-col justify-center gap-6"></main>`);
+  root.appendChild(main);
+  return main;
+}
+
+function renderChecking() {
+  const main = authMain();
+  main.appendChild(
+    el(`<div class="flex flex-col gap-2">
+      <p class="text-sm font-medium text-sage">Aliento</p>
+      <h1 class="display text-4xl leading-none">Un momento…</h1>
+      <p class="text-muted">Estamos abriendo tu cuenta.</p>
+    </div>`)
+  );
+}
+
+function renderSignIn() {
+  const main = authMain();
+  main.appendChild(
+    el(`<div class="flex flex-col gap-2">
+      <p class="text-sm font-medium text-sage">Aliento</p>
+      <h1 class="display text-4xl leading-none">Entra con Google</h1>
+      <p class="text-muted">Solo las personas que Ismael autoriza pueden usar esta app. Tus frases y tus sesiones quedan en tu cuenta, en el teléfono y en la computadora.</p>
+    </div>`)
+  );
+  const button = el(
+    `<button type="button" id="btn-google" class="h-14 w-full rounded-full bg-gold font-semibold text-bg">Entrar con Google</button>`
+  );
+  const status = el(`<p class="text-sm text-muted" id="auth-status"></p>`);
+  if (app.account?.error) status.textContent = app.account.error;
+  button.onclick = async () => {
+    button.disabled = true;
+    status.textContent = "Abriendo Google…";
+    status.className = "text-sm text-muted";
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      button.disabled = false;
+      status.textContent = spanishAuthError(err);
+      status.className = "text-sm text-muted";
+    }
+  };
+  main.appendChild(button);
+  main.appendChild(status);
+  main.appendChild(
+    el(`<p class="text-sm text-muted">Si no tienes acceso, pídeselo a Ismael. Él agrega tu correo en Personas.</p>`)
+  );
+}
+
+function deniedCopy() {
+  const email = app.account?.email || "";
+  const reason = app.account?.reason || "unauthorized";
+  if (reason === "no-email") {
+    return "Google no entregó un correo para esta cuenta. Prueba con otra.";
+  }
+  if (reason === "rules") {
+    return "No se pudo abrir la base de datos. Falta publicar las reglas de Firestore.";
+  }
+  if (reason === "offline-unknown") {
+    return "Hace falta internet la primera vez para comprobar tu acceso.";
+  }
+  if (reason === "gate") {
+    return app.account?.error || "No se pudo entrar. Inténtalo otra vez.";
+  }
+  return `La cuenta ${email} no tiene acceso. Pídele a Ismael que la autorice y vuelve a entrar.`;
+}
+
+function renderDenied() {
+  const main = authMain();
+  main.appendChild(
+    el(`<div class="flex flex-col gap-2">
+      <p class="text-sm font-medium text-sage">Aliento</p>
+      <h1 class="display text-4xl leading-none">Sin acceso</h1>
+      <p class="text-muted">${escapeHtml(deniedCopy())}</p>
+    </div>`)
+  );
+  if (app.account?.email && app.account.reason === "unauthorized") {
+    main.appendChild(
+      el(`<p class="card account-email p-4 text-center text-fg">${escapeHtml(app.account.email)}</p>`)
+    );
+  }
+  const out = el(`<button type="button" class="h-14 w-full rounded-full bg-gold font-semibold text-bg">Salir</button>`);
+  out.onclick = () => {
+    signOutCloud().catch(() => {
+      app.screen = "signin";
+      render();
+    });
+  };
+  main.appendChild(out);
+  const retry = el(`<button type="button" class="h-12 w-full rounded-full border border-line font-medium">Reintentar</button>`);
+  retry.onclick = () => {
+    app.screen = "checking";
+    render();
+    window.location.reload();
+  };
+  main.appendChild(retry);
+}
+
+function renderAccess() {
+  root.innerHTML = "";
+  const main = el(`<main class="app-shell mx-auto w-full max-w-lg"></main>`);
+  const box = el(`<div class="mx-auto flex max-w-lg flex-col gap-6"></div>`);
+  box.appendChild(
+    el(`<header class="flex flex-col gap-2">
+      <p class="text-sm font-medium text-sage">Solo tú</p>
+      <h1 class="display text-4xl leading-none">Personas</h1>
+      <p class="text-muted">Agrega o quita correos de Google. Quien no esté aquí ve un aviso y no entra. Tu correo de administrador siempre puede entrar.</p>
+    </header>`)
+  );
+  box.appendChild(el(`<p class="account-email text-sm text-sage">Administrador: ${escapeHtml(app.account?.email || "")}</p>`));
+  const form = el(`<form class="flex flex-col gap-3" id="access-form">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs tracking-wide text-muted uppercase">Correo de Google</span>
+      <input id="access-email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" class="auth-input rounded-xl border border-line bg-transparent px-3 text-fg outline-none" placeholder="persona@correo.com"/>
+    </label>
+    <button type="submit" class="h-14 w-full rounded-full bg-gold font-semibold text-bg">Agregar</button>
+  </form>`);
+  box.appendChild(form);
+  const status = el(`<p class="text-sm text-muted" id="access-status">Cargando…</p>`);
+  box.appendChild(status);
+  const list = el(`<div class="flex flex-col gap-3" id="access-list"></div>`);
+  box.appendChild(list);
+  const back = el(`<button type="button" class="h-12 w-full rounded-full border border-line font-medium">Volver</button>`);
+  back.onclick = () => {
+    app.screen = "home";
+    render();
+  };
+  box.appendChild(back);
+  main.appendChild(box);
+  root.appendChild(main);
+
+  const paint = (emails) => {
+    list.innerHTML = "";
+    const others = emails.filter((item) => item !== (app.account?.email || "").toLowerCase());
+    if (!others.length) {
+      list.appendChild(el(`<p class="text-muted">Todavía no autorizas a nadie más.</p>`));
+      return;
+    }
+    for (const email of others) {
+      const row = el(`<div class="card flex items-center justify-between gap-3 p-4">
+        <p class="account-email text-sm">${escapeHtml(email)}</p>
+        <button type="button" class="af-remove inline-flex items-center justify-center rounded-full border border-line text-sm font-medium">Quitar</button>
+      </div>`);
+      row.querySelector("button").onclick = async () => {
+        if (!confirm(`¿Quitar el acceso de ${email}?`)) return;
+        status.textContent = "Quitando…";
+        try {
+          await revokeEmail(email);
+          paint(emails.filter((item) => item !== email));
+          status.textContent = "Listo. Esa cuenta ya no entra.";
+          status.className = "text-sm text-sage";
+        } catch (err) {
+          status.textContent = spanishAuthError(err);
+          status.className = "text-sm text-muted";
+        }
+      };
+      list.appendChild(row);
+    }
+  };
+
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const input = form.querySelector("#access-email");
+    status.textContent = "Guardando…";
+    status.className = "text-sm text-muted";
+    try {
+      const email = await grantEmail(input.value);
+      input.value = "";
+      const emails = await fetchAllowlist();
+      paint(emails);
+      status.textContent = email === (app.account?.email || "").toLowerCase()
+        ? "Ese correo ya es el administrador."
+        : "Listo. Ese correo ya puede entrar con Google.";
+      status.className = "text-sm text-sage";
+    } catch (err) {
+      status.textContent = err?.code === "invalid-email"
+        ? "Escribe un correo válido."
+        : spanishAuthError(err);
+      status.className = "text-sm text-muted";
+    }
+  };
+
+  fetchAllowlist()
+    .then((emails) => {
+      paint(emails);
+      status.textContent = "Se guarda en la nube. No hace falta cambiar código.";
+      status.className = "text-sm text-muted";
+    })
+    .catch((err) => {
+      status.textContent = spanishAuthError(err);
+      status.className = "text-sm text-muted";
+    });
+}
+
+function reloadAccountData() {
+  app.data = loadState();
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
 }
 
-render();
+startCloud({
+  onChecking() {
+    app.screen = "checking";
+    render();
+  },
+  onLocal() {
+    app.account = { configured: false, email: "", name: "", isAdmin: false, error: "", reason: "" };
+    app.screen = "habits";
+    render();
+  },
+  onSignIn({ error }) {
+    app.account = {
+      configured: true,
+      email: "",
+      name: "",
+      isAdmin: false,
+      error: error || "",
+      reason: "",
+    };
+    app.screen = "signin";
+    render();
+  },
+  onDenied(info) {
+    app.account = {
+      configured: true,
+      email: info?.email || "",
+      name: "",
+      isAdmin: false,
+      error: info?.reason === "gate" ? info.error || "" : "",
+      reason: info?.reason || "unauthorized",
+    };
+    app.screen = "denied";
+    render();
+  },
+  onGate({ message }) {
+    app.account = {
+      configured: true,
+      email: "",
+      name: "",
+      isAdmin: false,
+      error: message || "",
+      reason: "gate",
+    };
+    app.screen = "denied";
+    render();
+  },
+  onReady(info) {
+    const enter = app.screen === "checking" || app.screen === "signin" || app.screen === "denied";
+    app.account = {
+      configured: true,
+      email: info.email,
+      name: info.name || "",
+      uid: info.uid || "",
+      isAdmin: !!info.isAdmin,
+      error: "",
+      reason: "",
+    };
+    reloadAccountData();
+    if (enter) {
+      app.screen = "habits";
+      render();
+    }
+  },
+  onRemote() {
+    reloadAccountData();
+    if (["home", "settings", "done", "habits", "reports", "stats", "group", "habit"].includes(app.screen)) render();
+  },
+});

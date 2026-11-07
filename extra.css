@@ -1,58 +1,400 @@
-/* Afirmación en la fase de hold: una sola frase, grande, centrada */
+/* Afirmación en la pausa: solo texto, letras claras sobre fondo oscuro. */
 .afirmacion-panel {
   min-height: 46vh;
+  width: 100%;
+  background: #101614;
+  color: #f7f4ec;
 }
 .afirmacion-texto {
-  font-size: clamp(1.5rem, 5.5vw, 2.35rem);
-  line-height: 1.3;
+  font-size: clamp(1.6rem, 6.4vw, 2.45rem);
+  line-height: 1.35;
   letter-spacing: -0.02em;
-  color: var(--color-fg);
+  color: #f7f4ec;
   max-width: 22rem;
-  font-weight: 520;
+  max-height: 52vh;
+  overflow: auto;
+  font-weight: 560;
+}
+.hold-kicker {
+  color: #c5ddd0;
+}
+.hold-timer {
+  color: #f7f4ec;
 }
 
-/* Fondo a sangre durante la pausa. El velo va encima de la foto y debajo del texto. */
-#app {
-  position: relative;
-  z-index: 1;
+/* Editor de frases, cómodo en el iPhone. */
+.af-add-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-bg);
+  padding-top: 0.25rem;
+  padding-bottom: 0.75rem;
 }
-#hold-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-color: #101614;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
-  opacity: 0;
-  transition: opacity 0.4s ease;
+.af-input {
+  font-size: 16px;
+  line-height: 1.45;
+  min-height: 4.75rem;
+  max-height: 40vh;
+  width: 100%;
+  resize: vertical;
+  background: transparent;
+  color: var(--color-fg);
 }
-#hold-backdrop.is-on {
-  opacity: 1;
+.af-remove {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.95rem;
 }
-#hold-backdrop::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at center, rgba(10, 14, 12, 0.78) 0%, rgba(10, 14, 12, 0.66) 42%, rgba(10, 14, 12, 0.52) 100%),
-    linear-gradient(to bottom, rgba(10, 14, 12, 0.45), rgba(10, 14, 12, 0.28) 30%, rgba(10, 14, 12, 0.55));
+#sync-url,
+#sync-key,
+.auth-input {
+  font-size: 16px;
+  min-height: 48px;
 }
-body.hold-has-image .afirmacion-texto {
-  color: #f7f4ec;
-  text-shadow: 0 2px 28px rgba(0, 0, 0, 0.65);
+.account-email {
+  overflow-wrap: anywhere;
 }
-body.hold-has-image .text-muted {
-  color: #d7e3dc;
+.habit-bar {
+  height: 0.55rem;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #31403a;
 }
-body.hold-has-image #btn-pause,
-body.hold-has-image #btn-stop {
-  background: rgba(16, 22, 20, 0.55);
-  border-color: rgba(244, 240, 230, 0.38);
+.habit-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #e7b07a;
 }
-@media (prefers-reduced-motion: reduce) {
-  #hold-backdrop {
-    transition: none;
+.habit-bar > span.is-done {
+  background: #8fbfa4;
+}
+
+/* Sigue el modo del iPhone: claro u oscuro. La pausa de respiración se queda oscura. */
+@media (prefers-color-scheme: light) {
+  html {
+    color-scheme: light;
+    --color-bg: #f6f3ec;
+    --color-surface: #ffffff;
+    --color-fg: #1c2823;
+    --color-muted: #5c6b64;
+    --color-line: #e4ddd2;
+    --color-gold: #b8743a;
+    --color-sage: #2f6d52;
   }
 }
+body.session-dark {
+  background: #101614;
+  color: #f4f0e6;
+}
+body.has-tabs .app-shell {
+  padding-bottom: calc(5.6rem + env(safe-area-inset-bottom));
+}
+.tabbar {
+  position: fixed;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-bg);
+  padding: 0.2rem 0.15rem calc(0.25rem + env(safe-area-inset-bottom));
+}
+.tabbar button {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+.tabbar button.is-on {
+  color: var(--color-fg);
+}
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.week-day strong {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-fg);
+  font-size: 0.95rem;
+}
+.week-day.is-today strong {
+  background: var(--color-fg);
+  color: var(--color-bg);
+}
+.week-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--color-sage);
+}
+.week-dot.is-empty {
+  background: transparent;
+}
+.habit-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 4.6rem;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: var(--card, var(--color-surface));
+}
+.habit-card-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--fill, var(--color-gold));
+  opacity: 0.9;
+}
+.habit-card-hit,
+.habit-streak {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+.habit-card-hit {
+  display: flex;
+  min-height: 4.6rem;
+  flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0.4rem 0.85rem 0.9rem;
+  text-align: left;
+}
+.habit-emoji {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.habit-card-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.habit-name {
+  font-weight: 600;
+}
+.habit-progress,
+.habit-streak {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+.habit-streak {
+  min-height: 44px;
+  padding-right: 0.9rem;
+  white-space: nowrap;
+}
+.tone-rose { --card: #f8d7e3; --fill: #e7a3bb; --ink: #8d3d58; }
+.tone-peach { --card: #fde3cf; --fill: #f0b27a; --ink: #9a5a32; }
+.tone-sand { --card: #f7efc8; --fill: #e3c56a; --ink: #8a7340; }
+.tone-mint { --card: #d7f0e2; --fill: #7dcaa0; --ink: #2f7a52; }
+.tone-sky { --card: #d7e8f8; --fill: #8eb8dc; --ink: #3a6d94; }
+.tone-lilac { --card: #e6def6; --fill: #b9a4dc; --ink: #6d5494; }
+@media (prefers-color-scheme: dark) {
+  .tone-rose { --card: #4a2c38; --fill: #8d3d58; }
+  .tone-peach { --card: #4a3424; --fill: #9a5a32; }
+  .tone-sand { --card: #3e3a24; --fill: #8a7340; }
+  .tone-mint { --card: #1e3a2e; --fill: #2f7a52; }
+  .tone-sky { --card: #243444; --fill: #3a6d94; }
+  .tone-lilac { --card: #342844; --fill: #6d5494; }
+  .habit-name,
+  .habit-progress,
+  .habit-streak { color: #f4f0e6; }
+}
+.report-scroll,
+.heat-scroll,
+.chip-row {
+  overflow-x: auto;
+}
+.report-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: max(100%, calc(8.2rem + var(--cols) * 1.15rem));
+}
+.report-row {
+  display: grid;
+  grid-template-columns: 6.4rem minmax(0, 1fr);
+  gap: 0.35rem;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  background: transparent;
+  text-align: left;
+}
+.report-label {
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-dots {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(1rem, 1fr));
+  gap: 0.2rem;
+  align-items: center;
+}
+.grid-head {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  text-align: center;
+}
+.grid-head.is-best {
+  color: var(--color-fg);
+  font-weight: 700;
+}
+.grid-dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  justify-self: center;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+.grid-dot.is-on { background: var(--fill, var(--color-sage)); }
+.grid-dot.is-best { background: var(--color-gold); }
+.chip-row {
+  display: flex;
+  gap: 0.4rem;
+}
+.habit-chip,
+.emoji-pick,
+.color-pick {
+  min-height: 44px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+.habit-chip {
+  padding: 0 0.8rem;
+  white-space: nowrap;
+}
+.habit-chip.is-on,
+.emoji-pick.is-on,
+.color-pick.is-on {
+  border-color: var(--color-fg);
+}
+.emoji-row,
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.emoji-pick {
+  width: 44px;
+  font-size: 1.25rem;
+}
+.color-pick {
+  width: 44px;
+  background: var(--fill, var(--color-line));
+}
+.cal-week,
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+  text-align: center;
+}
+.cal-week {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.cal-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 2.6rem;
+  font-size: 0.75rem;
+}
+.cal-day .day-ring {
+  position: absolute;
+  width: 2.35rem;
+  height: 2.35rem;
+}
+.day-ring-track,
+.day-ring-value {
+  fill: none;
+  stroke-width: 3.5;
+}
+.day-ring-track { stroke: var(--color-line); }
+.day-ring-value {
+  stroke: var(--fill, var(--color-gold));
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 18px 18px;
+}
+.heat-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 0.7rem);
+  gap: 0.15rem;
+  width: max-content;
+}
+.heat-cell {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.15rem;
+  background: var(--color-line);
+}
+.heat-cell.lv-1 { opacity: 0.35; background: var(--fill, var(--color-sage)); }
+.heat-cell.lv-2 { opacity: 0.55; background: var(--fill, var(--color-sage)); }
+.heat-cell.lv-3 { opacity: 0.8; background: var(--fill, var(--color-sage)); }
+.heat-cell.lv-4 { opacity: 1; background: var(--fill, var(--color-sage)); }
+.heat-cell.is-empty { background: transparent; }
+.avatar {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--color-line);
+  font-weight: 650;
+}
+.group-habit {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.group-habit-copy { flex: 1; min-width: 0; }
+.habit-track {
+  display: block;
+  height: 0.45rem;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+.habit-track > span {
+  display: block;
+  height: 100%;
+  background: var(--fill, var(--color-sage));
+}
+.cheer {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+}
+.cheer.is-on { background: var(--color-gold); }
