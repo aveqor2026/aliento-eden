@@ -20,6 +20,7 @@ import {
   goalForPeriod,
   guessEmoji,
   habitById,
+  isBreathHabit,
   importAdminSeedIfNeeded,
   loadHabits,
   monthGrid,
@@ -214,6 +215,11 @@ function openStats(ctx, id) {
 }
 
 function openCrono(ctx, id, back) {
+  if (isBreathHabit(habitById(id))) {
+    ctx.app.screen = "home";
+    ctx.render();
+    return;
+  }
   ctx.app.habitId = id;
   ctx.app.habitBack = back || "habits";
   ctx.app.screen = "crono";
