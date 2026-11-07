@@ -417,11 +417,6 @@ export function startCloud(handlers) {
 
 export async function signInWithGoogle() {
   const { auth, provider } = await ensure();
-  if (useRedirect()) {
-    const { signInWithRedirect } = await import(`${FB}/firebase-auth.js`);
-    await signInWithRedirect(auth, provider);
-    return;
-  }
   const { signInWithPopup, signInWithRedirect } = await import(`${FB}/firebase-auth.js`);
   try {
     await signInWithPopup(auth, provider);
@@ -429,8 +424,7 @@ export async function signInWithGoogle() {
     const code = err?.code || "";
     if (
       code === "auth/popup-blocked" ||
-      code === "auth/operation-not-supported-in-this-environment" ||
-      code === "auth/cancelled-popup-request"
+      code === "auth/operation-not-supported-in-this-environment"
     ) {
       await signInWithRedirect(auth, provider);
       return;
