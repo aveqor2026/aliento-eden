@@ -396,21 +396,36 @@ export function startCloud(handlers) {
       enqueuePush();
     });
   }
+  // Si Google tarda demasiado, no dejar la pantalla esperando para siempre.
+  let answered = false;
+  const watchdog = setTimeout(() => {
+    if (answered) return;
+    handlers.onGate({
+      message: "Tu cuenta está tardando en abrir. Revisa tu conexión y toca Reintentar.",
+    });
+  }, 15000);
   ensure()
     .then(async ({ auth }) => {
       const { getRedirectResult, onAuthStateChanged } = await import(`${FB}/firebase-auth.js`);
       let redirectError = null;
       try {
-        await getRedirectResult(auth);
+        await Promise.race([
+          getRedirectResult(auth),
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
       } catch (err) {
         redirectError = err;
       }
       onAuthStateChanged(auth, (user) => {
+        answered = true;
+        clearTimeout(watchdog);
         handleUser(user, redirectError, handlers);
         redirectError = null;
       });
     })
     .catch((err) => {
+      answered = true;
+      clearTimeout(watchdog);
       handlers.onGate({
         message: "No se pudo cargar el acceso de Google. Revisa tu conexión e inténtalo otra vez.",
         detail: spanishAuthError(err),

@@ -15,10 +15,49 @@
   <link rel="apple-touch-icon" href="./favicon.svg"/>
   <link rel="stylesheet" href="./s.css"/>
   <link rel="stylesheet" href="./extra.css"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,520;9..144,620&amp;family=Outfit:wght@400;500;600&amp;display=swap"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,520;9..144,620&amp;family=Outfit:wght@400;500;600&amp;display=swap" media="print" onload="this.media='all'"/>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app"><main id="aliento-boot" style="min-height:80vh;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:24px;max-width:32rem;margin:0 auto;color:#f4f0e6;font-family:-apple-system,system-ui,sans-serif"><p style="color:#8fbfa4;font-size:14px">Aliento</p><h1 style="font-size:32px;line-height:1">Abriendo…</h1></main></div>
+  <script>
+    (function () {
+      if (typeof window.structuredClone !== "function") {
+        window.structuredClone = function (v) { return JSON.parse(JSON.stringify(v)); };
+      }
+      var lastError = "";
+      function note(msg) { if (msg && !lastError) lastError = String(msg).slice(0, 200); }
+      window.addEventListener("error", function (e) { note(e && (e.message || (e.target && e.target.src))); }, true);
+      window.addEventListener("unhandledrejection", function (e) { note(e && e.reason && (e.reason.message || e.reason)); });
+      function repair() {
+        var jobs = [];
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+              return Promise.all(rs.map(function (r) { return r.unregister(); }));
+            }));
+          }
+          if (window.caches && caches.keys) {
+            jobs.push(caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            }));
+          }
+        } catch (err) {}
+        Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+      }
+      setTimeout(function () {
+        var boot = document.getElementById("aliento-boot");
+        if (!boot) return;
+        boot.innerHTML = '<p style="color:#8fbfa4;font-size:14px">Aliento</p>' +
+          '<h1 style="font-size:28px;line-height:1.1">No terminó de abrir</h1>' +
+          '<p style="color:#9aada4">Revisa tu conexión y toca Reintentar.</p>' +
+          (lastError ? '<p style="color:#9aada4;font-size:12px;word-break:break-word"></p>' : "") +
+          '<button type="button" style="height:52px;border-radius:999px;border:0;background:#e7b07a;color:#101614;font-weight:600;font-size:16px">Reintentar</button>';
+        var detail = boot.querySelector("p:nth-of-type(3)");
+        if (detail) detail.textContent = lastError;
+        boot.querySelector("button").onclick = repair;
+      }, 12000);
+    })();
+  </script>
   <nav id="tabbar" class="tabbar" hidden></nav>
   <script type="module" src="./app.js"></script>
 </body>

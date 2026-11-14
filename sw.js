@@ -1,4 +1,5 @@
-const CACHE = "aliento-v11";
+const CACHE = "aliento-v12";
+const NETWORK_WAIT_MS = 4000;
 
 const ASSETS = [
   "./",
@@ -42,15 +43,37 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  const isPage = req.mode === "navigate";
   event.respondWith(
-    fetch(req)
-      .then((res) => {
+    (async () => {
+      const network = fetch(req).then((res) => {
         if (res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
         }
         return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("./index.html")))
+      });
+      const cached = async () => {
+        const hit = await caches.match(req, { ignoreSearch: isPage });
+        if (hit) return hit;
+        return isPage ? (await caches.match("./index.html")) || (await caches.match("./")) : undefined;
+      };
+      // Red primero, pero si la red tarda mucho usa la copia guardada.
+      const slow = new Promise((resolve) => setTimeout(() => resolve("slow"), NETWORK_WAIT_MS));
+      try {
+        const first = await Promise.race([network, slow]);
+        if (first !== "slow") return first;
+        const hit = await cached();
+        if (hit) {
+          network.catch(() => {});
+          return hit;
+        }
+        return await network;
+      } catch {
+        const hit = await cached();
+        if (hit) return hit;
+        return Response.error();
+      }
+    })()
   );
 });
